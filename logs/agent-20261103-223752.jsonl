@@ -1,0 +1,23 @@
+{"ts": "2026-11-03T22:37:52.322", "tip": "reset"}
+{"ts": "2026-11-03T22:37:52.559", "tip": "descoperire", "servicii": {"cladire": "indisponibil", "meteo": "activ", "energie": "activ", "securitate": "indisponibil"}}
+{"ts": "2026-11-03T22:37:52.572", "tip": "lista_instrumente", "serviciu": "meteo", "motiv": "conectare", "adaugate": ["meteo_get_forecast", "meteo_get_outdoor_conditions", "meteo_get_status"], "eliminate": [], "ttl_ms": 60000}
+{"ts": "2026-11-03T22:37:52.586", "tip": "lista_instrumente", "serviciu": "energie", "motiv": "conectare", "adaugate": ["energie_cheapest_window", "energie_get_status", "energie_get_tariff"], "eliminate": [], "ttl_ms": 30000}
+{"ts": "2026-11-03T22:37:52.586", "tip": "pornire", "furnizor": "mock", "model": "mock-1", "mod": "eager"}
+{"ts": "2026-11-03T22:38:09.930", "tip": "intrebare", "text": "energie_get_forecast", "mesaje_taiate": 0, "instrumente": 6}
+{"ts": "2026-11-03T22:38:09.932", "tip": "cerere_model", "pas": 1, "mesaje": 2, "instrumente": 6, "durata_ms": 2, "prompt_tokens": 104}
+{"ts": "2026-11-03T22:38:09.932", "tip": "raspuns", "text": "[mock] Nu am nevoie de instrumente pentru asta.", "pas": 1}
+{"ts": "2026-11-03T22:38:28.844", "tip": "intrebare", "text": "/instrumente energie_get_status", "mesaje_taiate": 0, "instrumente": 6}
+{"ts": "2026-11-03T22:38:28.845", "tip": "cerere_model", "pas": 1, "mesaje": 4, "instrumente": 6, "durata_ms": 0, "prompt_tokens": 142}
+{"ts": "2026-11-03T22:38:28.845", "tip": "raspuns", "text": "[mock] Nu am nevoie de instrumente pentru asta.", "pas": 1}
+{"ts": "2026-11-03T22:38:43.621", "tip": "intrebare", "text": "/exit", "mesaje_taiate": 0, "instrumente": 6}
+{"ts": "2026-11-03T22:38:43.622", "tip": "cerere_model", "pas": 1, "mesaje": 6, "instrumente": 6, "durata_ms": 0, "prompt_tokens": 172}
+{"ts": "2026-11-03T22:38:43.622", "tip": "raspuns", "text": "[mock] Nu am nevoie de instrumente pentru asta.", "pas": 1}
+{"ts": "2026-11-03T22:38:46.423", "tip": "intrebare", "text": "/quit", "mesaje_taiate": 0, "instrumente": 6}
+{"ts": "2026-11-03T22:38:46.423", "tip": "cerere_model", "pas": 1, "mesaje": 8, "instrumente": 6, "durata_ms": 0, "prompt_tokens": 203}
+{"ts": "2026-11-03T22:38:46.424", "tip": "raspuns", "text": "[mock] Nu am nevoie de instrumente pentru asta.", "pas": 1}
+{"ts": "2026-11-03T22:38:48.040", "tip": "intrebare", "text": "quit", "mesaje_taiate": 0, "instrumente": 6}
+{"ts": "2026-11-03T22:38:48.041", "tip": "cerere_model", "pas": 1, "mesaje": 10, "instrumente": 6, "durata_ms": 0, "prompt_tokens": 234}
+{"ts": "2026-11-03T22:38:48.046", "tip": "raspuns", "text": "[mock] Nu am nevoie de instrumente pentru asta.", "pas": 1}
+{"ts": "2026-11-03T22:38:48.633", "tip": "intrebare", "text": "q", "mesaje_taiate": 0, "instrumente": 6}
+{"ts": "2026-11-03T22:38:48.633", "tip": "cerere_model", "pas": 1, "mesaje": 12, "instrumente": 6, "durata_ms": 0, "prompt_tokens": 263}
+{"ts": "2026-11-03T22:38:48.633", "tip": "raspuns", "text": "[mock] Nu am nevoie de instrumente pentru asta.", "pas": 1}

@@ -1,0 +1,38 @@
+{
+  "specVersion": "1.0",
+  "entries": [
+    {
+      "identifier": "urn:air:usv.ro:mcp:cladire",
+      "type": "application/mcp-server-card+json",
+      "data": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
+        "name": "ro.usv.si/smart-building-demo",
+        "version": "3.0",
+        "title": "Clădirea inteligentă",
+        "description": "Dispozitivele clădirii: informații, conflicte, consum, pornire și oprire.",
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "http://127.0.0.1:8000/mcp",
+            "supportedProtocolVersions": ["2026-07-28"]
+          }
+        ]
+      }
+    },
+    {
+      "identifier": "urn:air:usv.ro:mcp:meteo",
+      "type": "application/mcp-server-card+json",
+      "url": "http://127.0.0.1:8001/mcp/server-card"
+    },
+    {
+      "identifier": "urn:air:usv.ro:mcp:energie",
+      "type": "application/mcp-server-card+json",
+      "url": "http://127.0.0.1:8002/mcp/server-card"
+    },
+    {
+      "identifier": "urn:air:usv.ro:mcp:securitate",
+      "type": "application/mcp-server-card+json",
+      "url": "http://127.0.0.1:8003/mcp/server-card"
+    }
+  ]
+}
