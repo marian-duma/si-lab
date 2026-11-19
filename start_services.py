@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 AICI = Path(__file__).parent
-LAB3 = AICI.parent / "lab3-si" / "server.py"
+LAB3 = AICI / "server.py"
 
 FARA = {sys.argv[i + 1] for i, a in enumerate(sys.argv[:-1]) if a == "--fara"}
 SEARCH = ["--search"] if "--search" in sys.argv else []
