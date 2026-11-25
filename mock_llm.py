@@ -1,5 +1,25 @@
 """Furnizorul "mock": un model de limbaj FALS, fără rețea și fără cheie API.
 
+Versiunea 6 (Laboratorul 7). Față de versiunea 5 (marcate cu NOU (Lab. 7)):
+  - simulează un model NAIV, vulnerabil la injecția indirectă: dacă rezultatul unui instrument
+    conține „ignoră ... instrucțiunile” și cere „apelează <instrument> {json}”, mock-ul cere
+    exact acele apeluri, ca și cum le-ar fi cerut utilizatorul. Un model real poate face la fel.
+
+Versiunea 5 (Laboratorul 6). Față de versiunea 4 (marcate cu NOU (Lab. 6)):
+  - întrebările despre reguli, proceduri, manuale, program („Cum...", „Când...", „Pot...")
+    -> documente_cauta(intrebare);
+  - „Pot porni <dispozitiv>...?" -> în plus, starea clădirii și vremea (date live);
+  - în modul automat (fragmentele sunt deja în promptul de sistem) nu mai cere căutarea,
+    ci răspunde din fragmente.
+
+Versiunea 4 (Laboratorul 5). Față de versiunea 3 (marcate cu NOU (Lab. 5)):
+  - „ține minte că ..." / „reține că ..." -> memoreaza; „uită m2" -> uita;
+  - folosește CONTEXTUL: dacă întrebarea nu numește un dispozitiv („Și în 5 ore?"), îl caută
+    în mesajele anterioare și în promptul de sistem (rezumat); „temperatura preferată" fără
+    număr -> caută „N grade" în amintirile din promptul de sistem;
+  - „ce știi despre mine" -> enumeră amintirile din promptul de sistem, fără instrumente;
+  - răspunde la cererile de rezumat ale agentului (promptul care începe cu „Rezumă").
+
 Versiunea 3 (Laboratorul 4). Față de Laboratorul 2:
   - găsește instrumentele și sub numele cu prefix (de ex. meteo_get_status);
   - are reguli și pentru serviciile meteo și energie;
@@ -112,6 +132,102 @@ def serviciu_potrivit(text: str) -> str | None:
     return next((s for s, cuvinte in SERVICII.items() if any(c in t for c in cuvinte)), None)
 
 
+# ---------- NOU (Lab. 5): memoria ----------
+
+def comanda_memorie(text: str) -> list[tuple[str, dict]] | None:
+    """„ține minte că X" / „reține că X" -> memoreaza(X); „uită m2" -> uita(m2)."""
+    t = norm(text)  # aceeași lungime ca textul original, deci pozițiile coincid
+    m = re.match(r"\s*(tine minte|retine|memoreaza)\s*(ca\s+)?", t)
+    if m and len(t) > m.end():
+        fapt = text[m.end():].strip()
+        return [("memoreaza", {"text": fapt[0].upper() + fapt[1:]})]
+    m = re.match(r"\s*uita\b.*?\b(m\d+)\b", t)
+    if m:
+        return [("uita", {"id": m.group(1)})]
+    return None
+
+
+def completeaza_din_context(text: str, messages: list[dict]) -> str:
+    """Adaugă la întrebare ce lipsește din ea, dar se află în context (istoric sau prompt)."""
+    t = norm(text)
+    sistem = norm(messages[0]["content"]) if messages[0]["role"] == "system" else ""
+    anterioare = [norm(m["content"]) for m in messages[1:-1] if m["role"] == "user"]
+    # „Și în 5 ore?": dispozitivul este în întrebările anterioare sau în rezumat
+    if re.search(r"\d+\s*(de\s+)?or[ae]?\b", t) and not gaseste_dispozitive(t):
+        for sursa in reversed([sistem] + anterioare):
+            gasite = gaseste_dispozitive(sursa)
+            if gasite:
+                return f"{text} (consum {gasite[-1]})"
+    # „temperatura preferată": numărul este într-o amintire din promptul de sistem
+    if "preferat" in t and not re.search(r"\d+\s*(de\s+)?grade", t):
+        m = re.search(r"preferat\w*\D{0,20}?(\d+(?:[.,]\d+)?)\s*(?:de\s+)?grade", sistem)
+        if m:
+            return f"{text} (termostat {m.group(1)} grade)"
+    return text
+
+
+def amintiri_din_prompt(messages: list[dict]) -> list[str]:
+    sistem = messages[0]["content"] if messages[0]["role"] == "system" else ""
+    return [linie[2:] for linie in sistem.splitlines() if linie.startswith("- [m")]
+
+
+def rezumat_mock(text: str) -> str:
+    """Un „rezumat" fără model: rezumatul anterior + întrebările utilizatorului."""
+    anterior = re.search(r"^Rezumatul anterior: (.*)$", text, re.M)
+    intrebari = re.findall(r"^Utilizator: (.*)$", text, re.M)
+    parti = [anterior.group(1).rstrip(".")] if anterior else []
+    parti += [f"utilizatorul a întrebat „{q}”" for q in intrebari]
+    return "; ".join(parti) + "."
+
+
+# ---------- NOU (Lab. 6): documentele ----------
+
+CUVINTE_DOC = ["regul", "procedur", "manual", "document", "voie", "pot ", "cand ", "ce fac",
+               "cine ", "trebuie", "cum ", "program"]
+
+
+def fragmente_din_prompt(messages: list[dict]) -> list[str]:
+    sistem = messages[0]["content"] if messages[0]["role"] == "system" else ""
+    if "Fragmente din documente" not in sistem:
+        return []
+    return [l[2:] for l in sistem.split("Fragmente din documente", 1)[1].splitlines() if l.startswith("- [")]
+
+
+def cere_documente(text: str, unelte: set[str], apeluri: list, messages: list[dict]) -> list:
+    """Adaugă căutarea în documente (și datele live, pentru „Pot porni X?")."""
+    t = norm(text)
+    if "documente_cauta" not in unelte or not any(c in t for c in CUVINTE_DOC):
+        return apeluri
+    extra = [] if fragmente_din_prompt(messages) else [("documente_cauta", {"intrebare": text})]
+    if re.search(r"\bpot\b", t) and gaseste_dispozitive(t):
+        for n in ("get_building_state", "get_outdoor_conditions"):
+            if rezolva(n, unelte):
+                extra.append((rezolva(n, unelte), {}))
+    nume = {n for n, _ in extra}
+    return extra + [a for a in apeluri if a[0] not in nume]
+
+
+# ---------- NOU (Lab. 7): modelul naiv urmează instrucțiunile din date ----------
+
+def instructiuni_injectate(rezultate: list[str], unelte: set[str]) -> list[tuple[str, dict]]:
+    """Apelurile cerute de un text din rezultatele instrumentelor (injecție indirectă)."""
+    apeluri = []
+    for text in rezultate:
+        text = text.replace('\\"', '"').replace("\\n", " ")   # rezultatele sunt JSON (text escapat)
+        t = norm(text)
+        if "ignora" not in t or "instructiuni" not in t:
+            continue
+        for m in re.finditer(r"\b([a-z_]+)\s*(\{[^{}]*\})?", text):
+            nume = rezolva(m.group(1), unelte) if "_" in m.group(1) else None
+            if nume:
+                try:
+                    args = json.loads(m.group(2)) if m.group(2) else {}
+                except json.JSONDecodeError:
+                    args = {}
+                apeluri.append((nume, args))
+    return apeluri
+
+
 class _Apel:
     def __init__(self, nume: str, argumente: dict):
         self.id = f"mock_{next(_ids)}"
@@ -143,6 +259,9 @@ class _Completions:
         unelte = {t["function"]["name"] for t in (tools or [])}
         ultimul = messages[-1]
         ultimul_user = next(m for m in reversed(messages) if m["role"] == "user")
+        # NOU (Lab. 5): cererea de rezumat a agentului (nu are instrumente)
+        if messages[0]["role"] == "system" and norm(messages[0]["content"]).startswith("rezuma"):
+            return _raspuns(messages, continut=rezumat_mock(ultimul_user["content"]))
 
         if ultimul["role"] == "tool":
             if "bucla" in norm(ultimul_user["content"]) and rezolva("list_devices", unelte):
@@ -158,16 +277,37 @@ class _Completions:
                 if m["role"] != "tool":
                     break
                 rezultate.append(m["content"])
+            # NOU (Lab. 7): modelul naiv execută ce scrie în date
+            injectate = instructiuni_injectate(rezultate, unelte)
+            if injectate:
+                return _raspuns(messages, apeluri=[_Apel(n, a) for n, a in injectate])
             linii = "\n".join(f"- {r}" for r in reversed(rezultate))
             return _raspuns(messages, continut=f"[mock] Rezultatele instrumentelor:\n{linii}")
 
         text = ultimul["content"]
         if tool_choice == "none":
             return _raspuns(messages, continut="[mock] (am răspuns fără instrumente, tool_choice=none)")
+        # NOU (Lab. 5): comenzile de memorie și ce știe despre utilizator
+        memorie = comanda_memorie(text)
+        if memorie and all(n in unelte for n, _ in memorie):
+            return _raspuns(messages, apeluri=[_Apel(n, a) for n, a in memorie])
+        if "ce stii despre mine" in norm(text) or "ce iti amintesti" in norm(text):
+            amintiri = amintiri_din_prompt(messages)
+            if not amintiri:
+                return _raspuns(messages, continut="[mock] Nu am în context nicio amintire despre tine.")
+            return _raspuns(messages, continut="[mock] Știu că:\n" + "\n".join(f"- {a}" for a in amintiri))
+        if not norm(text).startswith("apel:"):
+            text = completeaza_din_context(text, messages)
         try:
             apeluri = planifica(text, unelte)
         except (ValueError, json.JSONDecodeError):
             return _raspuns(messages, continut="[mock] Comandă 'apel:' invalidă. Format: apel: nume {json}")
+        # NOU (Lab. 6): documentele (la cerere) sau fragmentele deja aflate în prompt (automat)
+        if not norm(text).startswith("apel:"):
+            apeluri = cere_documente(text, unelte, apeluri, messages)
+            fragmente = fragmente_din_prompt(messages)
+            if not apeluri and fragmente and any(c in norm(text) for c in CUVINTE_DOC):
+                return _raspuns(messages, continut="[mock] Din documente:\n" + "\n".join(f"- {f}" for f in fragmente))
         # NOU (Lab. 4): modul lazy - nu am instrumentul, dar pot cere un serviciu
         if not apeluri and "foloseste_serviciu" in unelte and serviciu_potrivit(text):
             apeluri = [("foloseste_serviciu", {"serviciu": serviciu_potrivit(text)})]

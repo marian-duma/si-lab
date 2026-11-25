@@ -1,0 +1,14 @@
+{
+  "instrumente": {
+    "cladire_set_device_state": "permis",
+    "cladire_set_thermostat": "permis",
+    "cladire_reset_building": "confirmare"
+  },
+  "limite": {
+    "cladire_set_thermostat": {"temp_c": [18, 25]},
+    "cladire_estimate_energy": {"hours": [1, 24]}
+  },
+  "max_modificari_pe_intrebare": 3,
+  "surse_nesigure": ["documente_cauta"],
+  "contaminare": true
+}

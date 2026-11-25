@@ -1,127 +1,137 @@
-"""Laborator 2 SI - serverul MCP al clădirii inteligente, acum cu instrumente care modifică starea."""
-from typing import Annotated
+"""Laborator 3 SI - serverul MCP al clădirii inteligente, versiunea 3.
+
+Stratul MCP peste building.py: tipuri de intrare (inputSchema), tipuri de ieșire
+(outputSchema + structuredContent), erori de execuție (ToolError) și două transporturi.
+
+Pornire:
+    python server.py          -> stdio (implicit; îl pornește clientul ca proces copil)
+    python server.py http     -> Streamable HTTP pe http://127.0.0.1:8000/mcp
+"""
+import sys
+from typing import Annotated, Literal, get_args
 
 from fastmcp import FastMCP
-from pydantic import Field
+from fastmcp.exceptions import ToolError
+from pydantic import BaseModel, Field
 
-mcp = FastMCP("smart-building-demo")
+from building import DEVICES, Building, BuildingError, Nivel
 
-# Date de test, inventate pentru laborator.
-DEVICES = {
-    "lampa_led": {"categorie": "iluminat", "putere_w": 10, "note": "Se poate regla pe trepte de intensitate."},
-    "radiator": {"categorie": "încălzire", "putere_w": 1500, "note": "Controlat de termostatul camerei."},
-    "aer_conditionat": {"categorie": "climatizare", "putere_w": 2000, "note": "Nu se folosește cu ferestrele deschise."},
-    "jaluzele": {"categorie": "umbrire", "putere_w": 30, "note": "Motor electric, consum doar la mișcare."},
-    "ventilatie": {"categorie": "ventilație", "putere_w": 120, "note": "Aduce aer proaspăt din exterior."},
-}
-CONFLICTE = {
-    frozenset({"radiator", "aer_conditionat"}): "RIDICAT - încălzire și răcire simultană, consum inutil.",
-    frozenset({"aer_conditionat", "ventilatie"}): "MEDIU - aerul exterior scade eficiența climatizării.",
-}
+mcp = FastMCP("smart-building-demo", version="3.0")
+cladire = Building()  # o singură clădire pentru tot procesul serverului
 
-# Starea clădirii. Trăiește în procesul serverului, NU în conversația cu modelul:
-# se pierde doar când serverul este oprit.
-PORNITE: set[str] = set()
-TERMOSTAT = {"temp_c": 21.0}
+# Numele valide devin o enumerare în schema de intrare: clientul (și modelul) le vede.
+DeviceName = Literal["lampa_led", "radiator", "aer_conditionat", "jaluzele", "ventilatie"]
+if set(get_args(DeviceName)) != set(DEVICES):  # lista trebuie să rămână sincronizată cu building.py
+    raise RuntimeError("Actualizați DeviceName în server.py după DEVICES din building.py.")
 
-# Adnotări (indicii pentru gazdă, nu garanții): vezi secțiunea 4.2.
 CITIRE = {"readOnlyHint": True}
 MODIFICARE = {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True}
 DISTRUGERE = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True}
 
 
-def _necunoscut(name: str) -> dict:
-    return {"eroare": f"Dispozitiv necunoscut: {name}", "cunoscute": sorted(DEVICES)}
+# ---------- Schemele de ieșire ----------
+
+class DeviceInfo(BaseModel):
+    nume: str
+    categorie: str
+    putere_w: int = Field(description="Puterea nominală, în wați.")
+    note: str
 
 
-# ---------- Instrumente de citire (ca în Laboratorul 1) ----------
+class EnergyEstimate(BaseModel):
+    nume: str
+    ore: float
+    energie_kwh: float
+
+
+class ConflictCheck(BaseModel):
+    nivel: Nivel
+    descriere: str
+
+
+class BuildingState(BaseModel):
+    pornite: list[str] = Field(description="Dispozitivele pornite, în ordine alfabetică.")
+    termostat_c: float = Field(description="Temperatura dorită, în °C.")
+
+
+def _domeniu(fn, *args):
+    """Traduce o eroare de domeniu într-o eroare de execuție MCP (isError: true)."""
+    try:
+        return fn(*args)
+    except BuildingError as e:
+        raise ToolError(str(e)) from e
+
+
+# ---------- Instrumente de citire ----------
 
 @mcp.tool(annotations=CITIRE)
 def list_devices() -> list[str]:
-    """Returnează numele tuturor dispozitivelor cunoscute din clădire."""
-    return sorted(DEVICES)
+    """Returnează numele tuturor dispozitivelor din clădire."""
+    return cladire.device_names()
 
 
 @mcp.tool(annotations=CITIRE)
-def get_device_info(name: str) -> dict:
-    """Returnează informații de bază despre un dispozitiv (categorie, putere în W, note)."""
-    info = DEVICES.get(name.strip().lower())
-    if info is None:
-        return _necunoscut(name)
-    return {"nume": name.strip().lower(), **info}
+def get_device_info(name: DeviceName) -> DeviceInfo:
+    """Returnează informații despre un dispozitiv: categorie, putere în W, note."""
+    return DeviceInfo(**_domeniu(cladire.device_info, name))
 
 
 @mcp.tool(annotations=CITIRE)
-def check_conflict(device_a: str, device_b: str) -> str:
+def check_conflict(device_a: DeviceName, device_b: DeviceName) -> ConflictCheck:
     """Verifică dacă două dispozitive au un conflict de funcționare cunoscut."""
-    cheie = frozenset({device_a.strip().lower(), device_b.strip().lower()})
-    return CONFLICTE.get(cheie, "Niciun conflict înregistrat în setul de date de test.")
+    nivel, descriere = _domeniu(cladire.conflict, device_a, device_b)
+    return ConflictCheck(nivel=nivel, descriere=descriere)
 
 
 @mcp.tool(annotations=CITIRE)
-def estimate_energy(name: str, hours: float) -> dict:
-    """Estimează energia consumată (în kWh) de un dispozitiv care funcționează un număr de ore."""
-    info = DEVICES.get(name.strip().lower())
-    if info is None:
-        return _necunoscut(name)
-    return {
-        "nume": name.strip().lower(),
-        "ore": hours,
-        "energie_kwh": round(info["putere_w"] * hours / 1000, 3),
-    }
+def estimate_energy(
+    name: DeviceName,
+    hours: Annotated[float, Field(gt=0, le=24, description="Durata de funcționare, în ore (0-24].")],
+) -> EnergyEstimate:
+    """Estimează energia consumată (kWh) de un dispozitiv care funcționează un număr de ore."""
+    return EnergyEstimate(nume=name, ore=hours, energie_kwh=_domeniu(cladire.energy_kwh, name, hours))
 
 
 @mcp.tool(annotations=CITIRE)
-def get_building_state() -> dict:
-    """Returnează starea curentă a clădirii: dispozitivele pornite și temperatura dorită a termostatului."""
-    return {"pornite": sorted(PORNITE), "termostat_c": TERMOSTAT["temp_c"]}
+def get_building_state() -> BuildingState:
+    """Returnează starea curentă a clădirii: dispozitivele pornite și termostatul."""
+    return BuildingState(**cladire.state())
 
 
-# ---------- Instrumente noi, cu efecte ----------
+# ---------- Instrumente cu efecte ----------
 
 @mcp.tool(annotations=MODIFICARE)
-def set_device_state(name: str, on: bool) -> dict:
-    """Pornește (on=true) sau oprește (on=false) un dispozitiv.
+def set_device_state(name: DeviceName, on: bool) -> BuildingState:
+    """Pornește (on=true) sau oprește (on=false) un dispozitiv și returnează noua stare.
 
     Refuză pornirea dacă ar crea un conflict de nivel RIDICAT cu un dispozitiv deja pornit.
     """
-    nume = name.strip().lower()
-    if nume not in DEVICES:
-        return _necunoscut(name)
-    if on:
-        for altul in sorted(PORNITE):
-            conflict = CONFLICTE.get(frozenset({nume, altul}), "")
-            if conflict.startswith("RIDICAT"):
-                return {"ok": False, "motiv": f"Conflict cu {altul}, care este pornit: {conflict}"}
-        PORNITE.add(nume)
-    else:
-        PORNITE.discard(nume)
-    return {"ok": True, "nume": nume, "pornit": nume in PORNITE}
+    _domeniu(cladire.set_device, name, on)
+    return BuildingState(**cladire.state())
 
 
 @mcp.tool(annotations=MODIFICARE)
 def set_thermostat(
-    temp_c: Annotated[float, Field(ge=10, le=30, description="Temperatura dorită, în grade Celsius (10-30).")],
-) -> dict:
-    """Setează temperatura dorită a termostatului camerei."""
-    TERMOSTAT["temp_c"] = temp_c
-    return {"ok": True, "temp_c": temp_c}
+    temp_c: Annotated[float, Field(ge=10, le=30, description="Temperatura dorită, în °C (10-30).")],
+) -> BuildingState:
+    """Setează temperatura dorită a termostatului și returnează noua stare."""
+    _domeniu(cladire.set_thermostat, temp_c)
+    return BuildingState(**cladire.state())
 
 
 @mcp.tool(annotations=DISTRUGERE)
-def reset_building() -> dict:
-    """Oprește toate dispozitivele și readuce termostatul la 21 °C. Șterge starea curentă a clădirii."""
-    PORNITE.clear()
-    TERMOSTAT["temp_c"] = 21.0
-    return {"ok": True, "mesaj": "Clădirea a fost resetată."}
+def reset_building() -> BuildingState:
+    """Oprește toate dispozitivele și readuce termostatul la 21 °C."""
+    cladire.reset()
+    return BuildingState(**cladire.state())
 
 
-# ---------- Resursă și prompt (ca în Laboratorul 1) ----------
+# ---------- Resursă și prompt (ca în laboratoarele anterioare) ----------
 
 @mcp.resource("device://{name}/manual")
 def manual(name: str) -> str:
     """Un manual (fictiv) de o linie, expus ca resursă."""
-    info = DEVICES.get(name.lower())
+    info = DEVICES.get(name)
     return f"{name}: {info['categorie']}. {info['note']}" if info else f"Nu există manual pentru {name}."
 
 
@@ -135,4 +145,13 @@ def energy_review(devices: str) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run(show_banner=False)  # stdio, implicit
+    if len(sys.argv) > 1 and sys.argv[1] == "http":
+        mcp.run(
+            transport="http",
+            host="127.0.0.1",             # doar local, nu 0.0.0.0
+            port=8000,                    # adresa: http://127.0.0.1:8000/mcp
+            host_origin_protection=True,  # verifică Host și Origin (implicit, în FastMCP, este oprită)
+            show_banner=False,
+        )
+    else:
+        mcp.run(show_banner=False)  # stdio
